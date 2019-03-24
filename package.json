@@ -12,7 +12,9 @@
     "react": "^16.8.5",
     "react-beautiful-dnd": "^10.1.0",
     "react-dom": "^16.8.5",
-    "react-scripts": "2.1.8"
+    "react-scripts": "2.1.8",
+    "rxjs": "^6.4.0",
+    "zen-observable": "^0.8.13"
   },
   "scripts": {
     "start": "react-scripts start",

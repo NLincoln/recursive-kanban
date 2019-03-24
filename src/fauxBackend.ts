@@ -89,3 +89,21 @@ export async function updateTask(
 
   return nextTask;
 }
+
+export async function insertTask(
+  id: string,
+  task: Partial<Task>
+): Promise<Task> {
+  await wait(60);
+
+  let nextTask = genTask();
+  Object.assign(nextTask, task);
+  return nextTask;
+}
+
+export async function deleteTask(id: string): Promise<string> {
+  await wait(20);
+  CACHE.delete(id);
+  PARENT_MAP.delete(id);
+  return id;
+}

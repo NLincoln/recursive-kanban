@@ -1,3 +1,6 @@
+import React from "react";
+import { Observable } from "rxjs";
+
 export type ID = string;
 
 export interface OptimisticResult<T> {
@@ -13,33 +16,36 @@ export interface Cache<T> {
 }
 
 export interface CacheUpdate<T> {
+  lookup: ID[],
   create: { [x: string]: Partial<T> };
   update: { [x: string]: Partial<T> };
   remove: ID[];
 }
 
+export interface CacheUpdateResult<T> {
+  records: {
+    [x: string]: T
+  }
+  removed: ID[]
+}
+
 export type AsyncReducer<T> = (
   cache: Cache<T>,
   update: CacheUpdate<T>
-) => Promise<CacheUpdate<T>>;
+) => Promise<CacheUpdateResult<T>>;
 
 export function createCache<T>(updater: AsyncReducer<T>): Cache<T> {
   type State = { [x: string]: Partial<T> };
   const createState = (state: State): Cache<T> => {
-    let applyCacheUpdate = (update: CacheUpdate<T>): Cache<T> => {
+    let applyCacheUpdate = (update: CacheUpdateResult<T>): Cache<T> => {
       let nextState = {
         ...state,
-        ...update.create
+        ...update.records
       };
-      for (let id of update.remove) {
+      for (let id of update.removed) {
         delete nextState[id];
       }
-      for (let key of Object.keys(update.update)) {
-        nextState[key] = {
-          ...nextState[key],
-          ...update.update[key]
-        };
-      }
+      
       return createState(nextState);
     };
     return {
@@ -53,6 +59,7 @@ export function createCache<T>(updater: AsyncReducer<T>): Cache<T> {
             [id]: record
           }),
           asynchronous: updater(this, {
+            lookup: [],
             create: { [id]: record },
             remove: [],
             update: {}
@@ -71,6 +78,7 @@ export function createCache<T>(updater: AsyncReducer<T>): Cache<T> {
             }
           }),
           asynchronous: updater(this, {
+            lookup: [],
             create: {},
             remove: [],
             update: { [id]: record }
@@ -84,6 +92,7 @@ export function createCache<T>(updater: AsyncReducer<T>): Cache<T> {
         return {
           optimistic: createState(nextState),
           asynchronous: updater(this, {
+            lookup: [],
             create: {},
             remove: [id],
             update: {}
@@ -94,4 +103,55 @@ export function createCache<T>(updater: AsyncReducer<T>): Cache<T> {
   };
 
   return createState({});
+}
+
+export interface GetByIdResult<T> {
+  immediate: Partial<T> | null,
+  asynchronous: () => Promise<T | null>
+}
+
+export interface UseCacheResult<T> {
+  getById(id: ID): GetByIdResult<T>;
+  insert(id: ID, record: Partial<T>): Promise<void>;
+  update(id: ID, record: Partial<T>): Promise<void>;
+  remove(id: ID): Promise<void>;
+  subscribe<Q>(query: Q): T[];
+}
+
+export function useCache<T>(updater: AsyncReducer<T>): UseCacheResult<T> {
+  let [cache, setCache] = React.useState(() => createCache(updater));
+  return {
+    getById(id: ID) {
+      return {
+        immediate: cache.getById(id),
+        asynchronous: async () => {
+          let result = await updater(cache, {
+            lookup: [id],
+            create: {},
+            remove: [],
+            update: {}
+          });
+          return result.records[id] || null;
+        }
+      }
+    },
+    async insert(id: ID, record: Partial<T>): Promise<void> {
+      let { asynchronous, optimistic } = cache.insert(id, record);
+      setCache(optimistic);
+      setCache(await asynchronous);
+    },
+    async update(id: ID, record: Partial<T>): Promise<void> {
+      let { asynchronous, optimistic } = cache.update(id, record);
+      setCache(optimistic);
+      setCache(await asynchronous);
+    },
+    async remove(id: ID): Promise<void> {
+      let { asynchronous, optimistic } = cache.remove(id);
+      setCache(optimistic);
+      setCache(await asynchronous);
+    },
+    subscribe(query: any): T[] {
+      return query(Object.values(cache));
+    }
+  };
 }

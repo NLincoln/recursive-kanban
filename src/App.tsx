@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useReducer } from "react";
 import {
   DragDropContext,
   Draggable,
@@ -10,8 +10,15 @@ import { Card, CardHeader, CardContent } from "@material-ui/core";
 import CalendarIcon from "@material-ui/icons/CalendarToday";
 import formatDate from "date-fns/format";
 import { Task, TaskStatus } from "./typedefs";
-import { queryTasks, TaskQuery, updateTask } from "./fauxBackend";
-
+import {
+  queryTasks,
+  TaskQuery,
+  updateTask,
+  insertTask,
+  deleteTask,
+  findTask
+} from "./fauxBackend";
+import { Cache, CacheUpdate, useCache, UseCacheResult, CacheUpdateResult } from "./immutableCache";
 interface TaskCardProps {
   task: Task;
   index: number;
@@ -226,12 +233,68 @@ function TaskBoard(props: { query: TaskQuery }) {
   );
 }
 
+async function cacheUpdater(
+  cache: Cache<Task>,
+  update: CacheUpdate<Task>
+): Promise<CacheUpdateResult<Task>> {
+  let lookups: Promise<Task>[] = update.lookup.map(
+    findTask
+  );
+
+  let creates: Promise<Task>[] = [];
+  for (let newRecordId of Object.keys(update.create)) {
+    creates.push(insertTask(newRecordId, update.create[newRecordId]));
+  }
+  let updates: Promise<Task>[] = [];
+  for (let updateRecordId of Object.keys(update.update)) {
+    updates.push(updateTask(updateRecordId, update.update[updateRecordId]));
+  }
+  let deletes: Promise<string>[] = [];
+  for (let deleteRecordId of update.remove) {
+    deletes.push(deleteTask(deleteRecordId));
+  }
+  let [lookedup, create, updated, remove] = await Promise.all([
+    Promise.all(lookups),
+    Promise.all(creates),
+    Promise.all(updates),
+    Promise.all(deletes)
+  ]);
+  let taskArrayToMap = (tasks: Task[]): { [x: string]: Task } => {
+    let map: { [x: string]: Task } = {};
+    for (let task of tasks) {
+      map[task.id] = task;
+    }
+    return map;
+  };
+
+  return {
+    removed: remove,
+    records: {
+      ...taskArrayToMap(create),
+      ...taskArrayToMap(updated),
+      ...taskArrayToMap(lookedup),
+    }
+  };
+}
+
+const TaskCacheContext = React.createContext<UseCacheResult<Task>>(
+  null as never
+);
+
+function useTaskCache(): UseCacheResult<Task> {
+  return React.useContext(TaskCacheContext);
+}
+
 export default function App() {
+  let cache = useCache(cacheUpdater);
+
   return (
-    <TaskBoard
-      query={{
-        parent: "1"
-      }}
-    />
+    <TaskCacheContext.Provider value={cache}>
+      <TaskBoard
+        query={{
+          parent: "1"
+        }}
+      />
+    </TaskCacheContext.Provider>
   );
 }
