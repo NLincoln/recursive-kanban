@@ -1,0 +1,7 @@
+{
+  "name": "@kanban/server",
+  "version": "1.0.0",
+  "dependencies": {
+    "apollo-server": "^2.4.8"
+  }
+}
